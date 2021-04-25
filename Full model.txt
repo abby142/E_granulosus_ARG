@@ -1,0 +1,32 @@
+model{
+
+for(i in 1:N){
+status[i] ~ dbern(P)
+
+diagnostico[i] ~ dbern(Z[i])
+Z[i] <- z[status[i] + 1]
+
+ELISA[i] ~ dgamma(sh[i], rt[i]) 
+mn[i] <- vmn[status[i] + 1]
+sh[i] <- vsh[status[i] + 1]
+rt[i] <- sh[i]/mn[i] 
+
+westernblot[i] ~ dbern(q[i])
+q[i] <- Q[status[i] + 1]
+}
+
+z[1] <- 0
+z[2] ~ dbeta(8, 1)
+
+Q[1] ~ dbeta(1.5, 3)
+Q[2] ~ dbeta(4, 1.5)
+
+vmn <- sort(unorderedmeans)
+
+P ~ dbeta(1, 1)
+
+for(j in 1:2){
+unorderedmeans[j] ~ dgamma(0.001, 0.001)
+vsh[j] ~ dgamma(0.001, 0.001)
+}
+}

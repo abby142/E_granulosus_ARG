@@ -1,0 +1,220 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+In this simulation, sensitivity and specificity values were taken from different thresholds to determine the best threshold for herd level detection.
+
+Libraries/packages used:
+```{r}
+library(xtable)
+library(tidyverse)
+library(plot.matrix)
+library(gridExtra)
+library(cowplot)
+```
+
+```{r}
+load("sens.Rdata")
+load("spec.Rdata")
+```
+
+```{r}
+dat <- read.csv("cleaned ovine sero-data.csv")
+model.dat2 <- dat %>% 
+  select(X.1, diagnostico, X, westernblot) %>% 
+  rename(n.sheep = X.1) %>% 
+  rename(ELISA = X)
+
+model.dat2$westernblot <- as.numeric(as.factor(model.dat2$westernblot))
+model.dat2$westernblot[model.dat2$westernblot == 1] <- 0
+model.dat2$westernblot[model.dat2$westernblot == 2] <- 1
+
+model.dat2$diagnostico <- as.numeric(as.factor(model.dat2$diagnostico)) #hydatidosis is coded as number 4
+model.dat2$diagnostico[model.dat2$diagnostico != 4] <- 0
+model.dat2$diagnostico[model.dat2$diagnostico == 4] <- 1
+
+M1 <- model.dat2$ELISA
+thresholds <- M1[order(M1)]
+```
+
+Threshold quantiles were used to determine the most appropriate thresholds to select
+```{r}
+quantile(1:79, probs = c(0.1, 0.3, 0.5, 0.7, 0.9))
+```
+
+```{r}
+T1 <- thresholds[c(9, 24, 40, 56, 58, 61, 63, 68, 71)]
+```
+
+```{r}
+sample_size <- seq(1, 100, by = 1) #range of sample sizes
+prevalence <- seq(0.01, 0.2, by = 0.01) #range of prevalences
+nrepeats <- 500 #number of repeats
+
+spec <- as.data.frame(spec)
+
+set.seed(567)
+spec_2 <- sample_n(spec, nrepeats)
+
+sens <- as.data.frame(sens)
+
+set.seed(567)
+sens_2 <- sample_n(sens, nrepeats)
+
+spec_3 <- as.vector(na.omit(spec_2[, c(9, 24, 40, 56, 58, 61, 63, 68, 71)]))
+sens_3 <- as.vector(na.omit(sens_2[, c(9, 24, 40, 56, 58, 61, 63, 68, 71)]))
+```
+
+
+0% prevalence
+```{r}
+prev0 <- list()
+
+for(j in 1:9){
+p0 <- rep(NA, times = 100) 
+
+for (i in sample_size){
+pos <- rbinom(nrepeats, i, 0)
+diag_pos <- rbinom(nrepeats, pos, sens_3[[j]]) + rbinom(nrepeats, i-pos, 1-(spec_3[[j]]))
+p0[[i]] <- length(which(diag_pos > 1))/nrepeats
+}
+
+prev0[[j]] <- p0
+}
+```
+
+7% prevalence
+```{r}
+
+prev7 <- list()
+
+for(j in 1:9){
+  
+p7 <- rep(NA, times = 100)
+
+for (i in sample_size){
+pos <- rbinom(nrepeats, i, 0.07)
+diag_pos <- rbinom(nrepeats, pos, sens_3[[j]]) + rbinom(nrepeats, i-pos, 1-(spec_3[[j]]))
+p7[[i]] <- length(which(diag_pos > 1))/nrepeats
+}
+
+prev7[[j]] <- p7
+}
+```
+
+Remaining prevalence values
+```{r}
+prev <- list()
+
+for(j in 1:9){
+p_mat <- matrix(nrow = 100, ncol = 20)
+
+for (i in sample_size){
+  for (k in prevalence){
+    pos <- rbinom(nrepeats, i, k)
+    diag_pos <- rbinom(nrepeats, pos, sens_3[[j]]) + rbinom(nrepeats, i-pos, 1-(spec_3[[j]]))
+    l <- k*100
+    p_mat[[i, l]] <- length(which(diag_pos > 1))/nrepeats
+  }
+}
+
+prev[[j]] <- p_mat
+}
+```
+
+```{r}
+prev_all <- list()
+
+for(j in 1:9){
+colnames(prev[[j]]) <- seq(0.01, 0.2, by = 0.01)
+prev_all[[j]] <- cbind(sample_size, prev[[j]])
+prev_all[[j]] <- as.data.frame(prev_all[[j]])
+prev_all[[j]]$`0.07` <- prev7[[j]]
+} 
+```
+
+Create matrix heatmap
+```{r}
+prev_plot <- list()
+
+for(j in 1:9){
+p_1 <- as.matrix(prev_all[[j]][,2:21])
+p_1 <- p_1[,order(ncol(p_1):1)] #reverse column order
+p_1 <- cbind(p_1, 1-(prev0[[j]]))
+colnames(p_1)[21] <- "0"
+colnames(p_1)[1:20] <- c("20", "19", "18", "17", "16", "15", "14", "13", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2", "1")
+par(mar = c("bottom" = 5, "left" = 4, "top" = 4, "right" = 3))
+
+prev_plot[[j]] <- plot(t(p_1), breaks = 10, xlab = "Sample size", ylab = "Prevalence (%)", main = T1[[j]], T1[[j]], border = NA, axis.col = NULL, xpd = TRUE, key = NULL)
+axis(1, at = seq(1, 105, 5))
+}
+
+par(mar = c("bottom" = 1, "left" = 4, "top" = 7, "right" = 1))
+plot(t(p_1[,2:5]), breaks = 10, xlab = "Sample size", ylab = "Prevalence", T1[[1]], border = NA, axis.col = NULL, xpd = TRUE, fmt.key = "%.1f", key = list(side = 3))
+
+#fmt.key = "%.1f", key = list(side = 3)
+```
+
+```{r}
+mat2 <- matrix(nrow = 20, ncol = 9)
+
+for(j in 1:9){
+
+ss <- prev_all[[j]][,1]
+r1 <- as.matrix(cbind(ss, (1-prev0[[j]]), prev_all[[j]][,2:21]))
+
+mat1 <- matrix(nrow = 100, ncol = 20)
+r3 <- rep(NA, times = 20)
+  
+  for(i in 3:22){
+  
+  r2 <- rep(NA, 100)
+    
+    for(h in 1:100){
+    r2[[h]] <- r1[h, 2] + r1[h, i] - 1
+  }
+
+mat1[,i-2] <- r2 
+r3[[i-2]] <- min(which(mat1[,i-2] == max(mat1[,i-2])))
+ 
+  }
+
+mat2[,j] <- r3
+
+}
+
+f <- rep(NA, times = 9)
+
+for(i in 1:9){
+  print(round(mean(mat2[,i])))
+  f[i] <- round(mean(mat2[,i]))
+}
+
+#for(i in 1:9){
+  #print(median(mat2[,i]))
+#}
+
+```
+
+```{r}
+
+e <- rep(NA, times = 9)
+
+for(i in 1:9){
+  r4 <- as.matrix(cbind((1-prev0[[i]]), prev_all[[i]][,2:21]))
+  x <- f[i]
+  d1 <- r4[x, ]
+  e[i] <- mean(d1)
+}
+
+e
+```
+
+
+```{r}
+res <- as.data.frame(cbind(f, e))
+res
+```
+
+

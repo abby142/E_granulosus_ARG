@@ -1,0 +1,294 @@
+---
+title: "Model 2"
+output: html_document
+---
+
+Libraries/packages used:
+```{r}
+library(tidyverse)
+library(varhandle)
+library(R2jags)
+library(coda)
+library(xtable)
+library(pROC)
+library(aplot)
+library(ROCit)
+library(miscTools)
+library(ggplot2)
+library(plotROC)
+```
+
+Load csv file (created in "Echinococcus sero data.Rmd" file)
+```{r}
+dat <- read.csv("cleaned ovine sero-data.csv")
+```
+
+FULL MODEL - EXTENSION OF BASE MODEL TO INCLUDE NECROPSY DATA
+
+Modify the data for the model - change column names, and result classification for western blot and necropsy data (0 = not infected, 1 = infected):
+```{r}
+model.dat2 <- dat %>% 
+  select(X.1, diagnostico, X, westernblot) %>% 
+  rename(n.sheep = X.1) %>% 
+  rename(ELISA = X)
+
+model.dat2$westernblot <- as.numeric(as.factor(model.dat2$westernblot))
+model.dat2$westernblot[model.dat2$westernblot == 1] <- 0
+model.dat2$westernblot[model.dat2$westernblot == 2] <- 1
+
+model.dat2$diagnostico <- as.numeric(as.factor(model.dat2$diagnostico)) #hydatidosis is coded as number 4
+model.dat2$diagnostico[model.dat2$diagnostico != 4] <- 0
+model.dat2$diagnostico[model.dat2$diagnostico == 4] <- 1
+```
+
+Run the model:
+```{r}
+m.data2 <- list(N = 79,
+                 ELISA = model.dat2$ELISA,
+                 westernblot = model.dat2$westernblot,
+                diagnostico = model.dat2$diagnostico)
+
+m.params2 <- c("P", "vsh", "vmn", "Q", "z", "westernblot", "status")
+
+nc2 <- 2 #chains
+ni2 <- 100000 #iterations
+nb2 <- 10000 #burnin
+nt2 <- 5 #thinning
+
+set.seed(222)
+result2 <- jags(model.file = "Full model.txt", data = m.data2, parameters.to.save = m.params2, n.iter = ni2, n.burnin = nb2, n.chains = nc2, progress.bar = "text", n.thin = nt2)
+```
+
+Change the output to a MCMC object:
+```{r}
+result2.mcmc <- as.mcmc(result2, start = 10001, end = 100000, thin = 5)
+save(result2, file = "Full_model.Rdata")
+load("Full_model.Rdata")
+```
+
+Create a HTML document of diagnostic plots:
+```{r}
+mcmcplots::mcmcplot(result2.mcmc)
+```
+
+Produce a summary of the results:
+```{r}
+result2.sum <- (summary(result2.mcmc))
+result2.sum
+```
+
+Create tables and CSVs for the statistics and quantiles:
+```{r}
+stats_table <- as.data.frame(result2.sum$statistics)
+quant_table <- as.data.frame(result2.sum$quantiles)
+
+write.csv(stats_table, "full_model_stats.csv", row.names = T)
+write.csv(quant_table, "full_model_BCI.csv", row.names = T)
+```
+
+Visualise the distribution of status mean values through density plots and histograms:
+```{r}
+status_mean <- as.vector(stats_table$Mean[c(5, 16, 27, 38, 49, 60, 71, 82:83, 6:15, 17:26, 28:37, 39:48, 50:59, 61:70, 72:81)])
+
+m2_plot <- ggplot(mapping = aes(status_mean)) + geom_density() + labs(y = "Density", x = "Status value", title = "Model 2 status density") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+m2_plot
+
+m2_hist <- ggplot(mapping = aes(status_mean)) + geom_histogram(binwidth = 0.02, colour = "black", fill = "coral3") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status \n(full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+m2_hist
+```
+
+Distribution of status by western blot data
+```{r}
+WB_res <- dat$westernblot
+
+status_mean_col <- as.data.frame(cbind(status_mean, WB_res))   
+
+colnames(status_mean_col) <- c("status_mean", "WB_group")
+
+m2_hist_col <- ggplot(status_mean_col, aes(x = status_mean, fill = as.factor(WB_group))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status, \nby western blot result (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Western blot \nresult", labels = c("Negative", "Positive", "NA"))
+m2_hist_col
+
+```
+
+Distribution of status by necropsy data:
+```{r}
+sp <- dat$diagnostico
+
+sp <- ordered(sp, levels = c("hidatidosis", "cisticerco", "tysanosoma", "faciola", "dudoso", "negativo"))
+
+status_mean_sp <- as.data.frame(cbind(as.numeric(status_mean), sp))   
+
+m2_hist_sp <- ggplot(status_mean_sp, aes(x = status_mean, fill = as.factor(sp))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability") + theme(axis.title.x = element_text(size = 20), axis.title.y = element_text(size = 20), axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16), legend.text = element_text(size = 14), legend.title = element_text(size = 16), plot.margin=unit(c(1,1,1.5,1.2),"cm")) + scale_fill_discrete(name = "Necropsy Result", labels = c(expression(italic("E. granulosus")), expression(italic("Ta. hydatigena")),expression(italic("Th. actinioides")), expression(italic("F. hepatica")), "Indeterminate", "Negative"))
+ggsave("status_full_nec.pdf", m2_hist_sp, dpi = 300, width = 300, height = 240, units = "mm")
+m2_hist_sp
+```
+
+Distribution of mean ELISA values by disease status:
+```{r}
+vector_means <- result2[["BUGSoutput"]][["sims.list"]][["vmn"]]
+vmn1 <- vector_means[,1]
+vmn2 <- vector_means[,2]
+
+v.dat <- as.data.frame(c(vmn1, vmn2))
+
+v.dat <- v.dat %>% 
+  mutate(vector = "NA")
+
+v.dat$vector[1:36000] <- "1"
+v.dat$vector[36001:72000] <- "2"
+
+colnames(v.dat) <- c("mean", "vector")
+
+m2_hist_vmn <- ggplot(v.dat, aes(x = mean, fill = as.factor(vector))) + geom_histogram(binwidth = 0.02, position = "identity", alpha = 0.3, colour = "black") + labs(y = "Frequency", x = "Optical density", title = "Distribution of posterior ELISA optical density \nmeans, by disease status (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Disease status", labels = c("Not infected", "Infected"))
+m2_hist_vmn
+```
+
+
+ROC CURVE FROM ITERATION SAMPLES
+
+The ROC curve analysis was used to evaluate the sensitivity and specificity values of the ELISA assay, and to identify the appropriate cut-off threshold to maximise these parameters. 
+
+Sample 1000 particles from the MCMC run
+```{r}
+M1 <- model.dat2$ELISA #vector of ELISA values
+
+status <- result2[["BUGSoutput"]][["sims.list"]][["status"]]
+status <- as.data.frame(status)
+
+set.seed(999)
+samp1 <- sample_n(status, 1000)
+samp1 <- t(samp1)
+colnames(samp1) <- c(1:1000)
+
+write_csv(as.data.frame(samp1), "ROC sample.csv")
+```
+
+Run a for loop to for each ELISA value and each threshold value create an array of which animals would have a positive result under each threshold. 
+```{r}
+thresholds <- M1[order(M1)]
+E_result <-  matrix(nrow = 79, ncol = 79)
+
+  for(i in 1:79) {
+for (j in 1:79) {
+  E_result[[i, j]] <- ifelse(M1[i] > thresholds[j], 1, 0)
+}
+  }    
+    
+(E_result) #rows are the ELISA value, columns are the threshold
+```
+
+Renaming the columns and rows
+```{r}
+colnames(E_result) <- thresholds
+rownames(E_result) <- c(1:79)
+E_result
+```
+
+Calculate sensitivity and specificity
+```{r}
+sens <- matrix(nrow = 1000, ncol = 79)
+spec <- matrix(nrow = 1000, ncol = 79)
+
+TP <- rep(NA, times = 79)
+FN <- rep(NA, times = 79)
+FP <- rep(NA, times = 79)
+TN <- rep(NA, times = 79)
+
+for(j in 1:79) {
+ for(k in 1:1000){
+     for(i in 1:79){
+    
+      TP[[i]] <- ifelse(E_result[i,j]==1 & samp1[i,k]==1, 1, 0)
+      FN[[i]] <- ifelse(E_result[i,j]==0 & samp1[i,k]==1, 1, 0)
+      FP[[i]] <- ifelse(E_result[i,j]==1 & samp1[i,k]==0, 1, 0)
+      TN[[i]] <- ifelse(E_result[i,j]==0 & samp1[i,k]==0, 1, 0)
+      
+     }
+   
+      TP2 <- sum(TP)
+      FN2 <- sum(FN)
+      FP2 <- sum(FP)
+      TN2 <- sum(TN)
+      
+      sens[[k,j]] <- TP2/(TP2+FN2)
+      spec[[k,j]] <- TN2/(TN2+FP2)
+      
+  }
+}
+
+save(sens, file = "sens.Rdata")
+save(spec, file = "spec.Rdata")
+```
+All particles within which all animals are infected - coming up as NaN in specificity
+
+Extract mean, median and CI values for sensitivity and specificity
+```{r}
+sens_CI <- data_frame(matrix(nrow = 3, ncol = 79))
+spec_CI <- data_frame(matrix(nrow = 3, ncol = 79))
+sens_mean <- rep(NA, times = 79)
+spec_mean <- rep(NA, times = 79)
+
+spec <- as.data.frame(spec)
+
+for(j in 1:79){
+  sens_mean[[j]] <- mean(na.omit(sens[,j]))
+  spec_mean[[j]] <- mean(na.omit(spec[,j]))
+  sens_CI[[j]] <- quantile(sens[,j], probs = c(0.025, 0.5, 0.975), na.rm = TRUE)
+  spec_CI[[j]] <- quantile(spec[,j], probs = c(0.025, 0.5, 0.975), na.rm = TRUE)
+}
+
+```
+Need to omit NAs, otherwise the loop will not run. 
+
+Create a dataframe of results, including the mean, median and 95% confidence intervals:
+```{r}
+sens_CI <- t(sens_CI)
+spec_CI <- t(spec_CI)
+sens_mean <- as.data.frame(sens_mean)
+spec_mean <- as.data.frame(spec_mean)
+
+roc_dat <- as.data.frame(cbind(sens_mean, sens_CI, spec_mean, spec_CI))
+colnames(roc_dat) <- c("Mean Se", "2.5%CI Se", "Median Se", "97.5%CI Se", "Mean Sp", "2.5%CI Sp", "Median Sp", "97.5%CI Sp")
+
+roc_dat <- roc_dat %>% 
+  mutate("1-sp" = 1 - roc_dat$`Mean Sp`)
+```
+
+Determine the optimal cut-off for the mean and 95% confidence intervals:
+```{r}
+topleft_med <- rep(NA, times = 79)
+topleft_L <- rep(NA, times = 79)
+topleft_U <- rep(NA, times = 79)
+
+for (k in 1:79) {
+  topleft_med[[k]] <- ((1-roc_dat$`Mean Se`[k])^2 + (1 - roc_dat$`Mean Sp`[k])^2)
+  topleft_U[[k]] <- ((1-roc_dat$`97.5%CI Se`[k])^2 + (1 - roc_dat$`97.5%CI Sp`[k])^2)
+  topleft_L[[k]] <- ((1-roc_dat$`2.5%CI Se`[k])^2 + (1 - roc_dat$`2.5%CI Sp`[k])^2)
+}
+
+which(topleft_med == min(topleft_med))
+which(topleft_U == min(topleft_U))
+which(topleft_L == min(topleft_L))
+```
+
+Plot the mean and 95% confidence intervals as a ROC curve
+```{r}
+xx <- c(1-roc_dat$`2.5%CI Sp`, rev(1-roc_dat$`97.5%CI Sp`))
+yy <- c(roc_dat$`2.5%CI Se`, rev(roc_dat$`97.5%CI Se`))
+
+plot(roc_dat$`1-sp`, roc_dat$`Mean Se`, type = "l", col = "black", 
+     ylab = "Sensitivity", xlab = "1 - Specificity", lwd = 2)
+polygon(xx, yy, col = adjustcolor("gray", alpha.f = 0.7), border = NA)
+abline(c(0,0),c(1,1))
+lines((1 - roc_dat$`2.5%CI Sp`), roc_dat$`2.5%CI Se`, col = "red", lty = 2)
+lines((1 - roc_dat$`97.5%CI Sp`), roc_dat$`97.5%CI Se`, col = "red", lty = 2)
+points(1-spec[,48], sens[,48], cex = 0.6, pch = 19)
+# points(roc_dat$`1-sp`[48], roc_dat$`Mean Se`[48], cex = 0.6, pch = 19)
+# points(1 - roc_dat$`2.5%CI Sp`[48], roc_dat$`2.5%CI Se`[48], cex = 0.6, pch = 19)
+# points(1 - roc_dat$`97.5%CI Sp`[48], roc_dat$`97.5%CI Se`[48], cex = 0.6, pch = 19)
+# text(roc_dat$`1-sp`[48], roc_dat$`Mean Se`[48], labels = "\nB")
+# text(1 - roc_dat$`2.5%CI Sp`[48], roc_dat$`2.5%CI Se`[48], labels = "\nC")
+# text(1 - roc_dat$`97.5%CI Sp`[48], roc_dat$`97.5%CI Se`[48], labels = "\nA")
+
+```
+
