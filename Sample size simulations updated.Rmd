@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Sample Size Simulations"
 output: html_document
 ---
 

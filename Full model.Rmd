@@ -1,5 +1,5 @@
 ---
-title: "Model 2"
+title: "Full model"
 output: html_document
 ---
 

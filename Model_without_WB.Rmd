@@ -1,5 +1,5 @@
 ---
-title: "Model_all_pos"
+title: "Model without Western Blot"
 output: html_document
 ---
 
