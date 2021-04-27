@@ -21,20 +21,16 @@ load("spec.Rdata")
 
 ```{r}
 dat <- read.csv("cleaned ovine sero-data.csv")
-model.dat2 <- dat %>% 
-  select(X.1, diagnostico, X, westernblot) %>% 
-  rename(n.sheep = X.1) %>% 
-  rename(ELISA = X)
 
-model.dat2$westernblot <- as.numeric(as.factor(model.dat2$westernblot))
-model.dat2$westernblot[model.dat2$westernblot == 1] <- 0
-model.dat2$westernblot[model.dat2$westernblot == 2] <- 1
+dat$Western_blot <- as.numeric(as.factor(dat$Western_blot))
+dat$Western_blot[dat$Western_blot == 1] <- 0
+dat$Western_blot[dat$Western_blot == 2] <- 1
 
-model.dat2$diagnostico <- as.numeric(as.factor(model.dat2$diagnostico)) #hydatidosis is coded as number 4
-model.dat2$diagnostico[model.dat2$diagnostico != 4] <- 0
-model.dat2$diagnostico[model.dat2$diagnostico == 4] <- 1
+dat$Necropsy <- as.numeric(as.factor(dat$Necropsy)) #Echinococcus is coded as number 4
+dat$Necropsy[dat$Necropsy != 4] <- 0
+dat$Necropsy[dat$Necropsy == 4] <- 1
 
-M1 <- model.dat2$ELISA
+M1 <- dat$ELISA_OD
 thresholds <- M1[order(M1)]
 ```
 
@@ -84,7 +80,7 @@ prev0[[j]] <- p0
 }
 ```
 
-7% prevalence
+7% prevalence - seems to get left out for some reason
 ```{r}
 
 prev7 <- list()
