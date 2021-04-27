@@ -18,7 +18,7 @@ library(ggplot2)
 library(plotROC)
 ```
 
-Load csv file (created in "Echinococcus sero data.Rmd" file)
+Load data
 ```{r}
 dat <- read.csv("cleaned ovine sero-data.csv")
 ```
@@ -27,60 +27,55 @@ FULL MODEL - EXTENSION OF BASE MODEL TO INCLUDE NECROPSY DATA
 
 Modify the data for the model - change column names, and result classification for western blot and necropsy data (0 = not infected, 1 = infected):
 ```{r}
-model.dat2 <- dat %>% 
-  select(X.1, diagnostico, X, westernblot) %>% 
-  rename(n.sheep = X.1) %>% 
-  rename(ELISA = X)
+dat$Western_blot <- as.numeric(as.factor(dat$Western_blot))
+dat$Western_blot[dat$Western_blot == 1] <- 0
+dat$Western_blot[dat$Western_blot == 2] <- 1
 
-model.dat2$westernblot <- as.numeric(as.factor(model.dat2$westernblot))
-model.dat2$westernblot[model.dat2$westernblot == 1] <- 0
-model.dat2$westernblot[model.dat2$westernblot == 2] <- 1
-
-model.dat2$diagnostico <- as.numeric(as.factor(model.dat2$diagnostico)) #hydatidosis is coded as number 4
-model.dat2$diagnostico[model.dat2$diagnostico != 4] <- 0
-model.dat2$diagnostico[model.dat2$diagnostico == 4] <- 1
+dat$Necropsy <- as.numeric(as.factor(dat$Necropsy)) #Echinococcus is coded as number 4
+dat$Necropsy[dat$Necropsy != 4] <- 0
+dat$Necropsy[dat$Necropsy == 4] <- 1
 ```
 
 Run the model:
 ```{r}
-m.data2 <- list(N = 79,
-                 ELISA = model.dat2$ELISA,
-                 westernblot = model.dat2$westernblot,
-                diagnostico = model.dat2$diagnostico)
+full.data <- list(N = 79,
+                 ELISA = dat$ELISA_OD,
+                 westernblot = dat$Western_blot,
+                diagnostico = dat$Necropsy)
 
-m.params2 <- c("P", "vsh", "vmn", "Q", "z", "westernblot", "status")
+m.params <- c("P", "vsh", "vmn", "Q", "z", "westernblot", "status")
 
-nc2 <- 2 #chains
-ni2 <- 100000 #iterations
-nb2 <- 10000 #burnin
-nt2 <- 5 #thinning
+nc <- 2 #chains
+ni <- 100000 #iterations
+nb <- 10000 #burnin
+nt <- 5 #thinning
 
 set.seed(222)
-result2 <- jags(model.file = "Full model.txt", data = m.data2, parameters.to.save = m.params2, n.iter = ni2, n.burnin = nb2, n.chains = nc2, progress.bar = "text", n.thin = nt2)
+full.result <- jags(model.file = "Full model.txt", data = full.data, parameters.to.save = m.params, n.iter = ni, n.burnin = nb, n.chains = nc, progress.bar = "text", n.thin = nt)
 ```
 
 Change the output to a MCMC object:
 ```{r}
-result2.mcmc <- as.mcmc(result2, start = 10001, end = 100000, thin = 5)
-save(result2, file = "Full_model.Rdata")
+full.result.mcmc <- as.mcmc(full.result, start = 10001, end = 100000, thin = 5)
+save(full.result, file = "Full_model.Rdata")
 load("Full_model.Rdata")
 ```
 
 Create a HTML document of diagnostic plots:
 ```{r}
-mcmcplots::mcmcplot(result2.mcmc)
+mcmcplots::mcmcplot(full.result.mcmc)
 ```
 
 Produce a summary of the results:
 ```{r}
-result2.sum <- (summary(result2.mcmc))
-result2.sum
+full.result.sum <- (summary(full.result.mcmc))
+full.result.sum
 ```
 
 Create tables and CSVs for the statistics and quantiles:
 ```{r}
-stats_table <- as.data.frame(result2.sum$statistics)
-quant_table <- as.data.frame(result2.sum$quantiles)
+stats_table <- as.data.frame(full.result.sum$statistics)
+quant_table <- as.data.frame(full.result.sum$quantiles)
 
 write.csv(stats_table, "full_model_stats.csv", row.names = T)
 write.csv(quant_table, "full_model_BCI.csv", row.names = T)
@@ -90,42 +85,42 @@ Visualise the distribution of status mean values through density plots and histo
 ```{r}
 status_mean <- as.vector(stats_table$Mean[c(5, 16, 27, 38, 49, 60, 71, 82:83, 6:15, 17:26, 28:37, 39:48, 50:59, 61:70, 72:81)])
 
-m2_plot <- ggplot(mapping = aes(status_mean)) + geom_density() + labs(y = "Density", x = "Status value", title = "Model 2 status density") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-m2_plot
+full_plot <- ggplot(mapping = aes(status_mean)) + geom_density() + labs(y = "Density", x = "Status value", title = "Full model status density") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+full_plot
 
-m2_hist <- ggplot(mapping = aes(status_mean)) + geom_histogram(binwidth = 0.02, colour = "black", fill = "coral3") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status \n(full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
-m2_hist
+full_hist <- ggplot(mapping = aes(status_mean)) + geom_histogram(binwidth = 0.02, colour = "black", fill = "coral3") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status \n(full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+full_hist
 ```
 
 Distribution of status by western blot data
 ```{r}
-WB_res <- dat$westernblot
+WB_res <- dat$Western_blot
 
 status_mean_col <- as.data.frame(cbind(status_mean, WB_res))   
 
 colnames(status_mean_col) <- c("status_mean", "WB_group")
 
-m2_hist_col <- ggplot(status_mean_col, aes(x = status_mean, fill = as.factor(WB_group))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status, \nby western blot result (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Western blot \nresult", labels = c("Negative", "Positive", "NA"))
-m2_hist_col
+full_hist_WB <- ggplot(status_mean_col, aes(x = status_mean, fill = as.factor(WB_group))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability", title = "Individual posterior probabilities of disease status, \nby western blot result (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Western blot \nresult", labels = c("Negative", "Positive", "NA"))
+full_hist_WB
 
 ```
 
 Distribution of status by necropsy data:
 ```{r}
-sp <- dat$diagnostico
+sp <- dat$Necropsy
 
-sp <- ordered(sp, levels = c("hidatidosis", "cisticerco", "tysanosoma", "faciola", "dudoso", "negativo"))
+sp <- ordered(sp, levels = c("Echinococcus", "Cysticercosis", "Thysanosoma", "Faciola", "Interderminate", "Negative"))
 
 status_mean_sp <- as.data.frame(cbind(as.numeric(status_mean), sp))   
 
-m2_hist_sp <- ggplot(status_mean_sp, aes(x = status_mean, fill = as.factor(sp))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability") + theme(axis.title.x = element_text(size = 20), axis.title.y = element_text(size = 20), axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16), legend.text = element_text(size = 14), legend.title = element_text(size = 16), plot.margin=unit(c(1,1,1.5,1.2),"cm")) + scale_fill_discrete(name = "Necropsy Result", labels = c(expression(italic("E. granulosus")), expression(italic("Ta. hydatigena")),expression(italic("Th. actinioides")), expression(italic("F. hepatica")), "Indeterminate", "Negative"))
-ggsave("status_full_nec.pdf", m2_hist_sp, dpi = 300, width = 300, height = 240, units = "mm")
-m2_hist_sp
+full_hist_sp <- ggplot(status_mean_sp, aes(x = status_mean, fill = as.factor(sp))) + geom_histogram(binwidth = 0.02, position = "stack", alpha = 0.5, colour = "black") + labs(y = "Frequency", x = "Probability") + theme(axis.title.x = element_text(size = 20), axis.title.y = element_text(size = 20), axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16), legend.text = element_text(size = 14), legend.title = element_text(size = 16), plot.margin=unit(c(1,1,1.5,1.2),"cm")) + scale_fill_discrete(name = "Necropsy Result", labels = c(expression(italic("E. granulosus")), expression(italic("Ta. hydatigena")),expression(italic("Th. actinioides")), expression(italic("F. hepatica")), "Indeterminate", "Negative"))
+ggsave("status_full_nec.pdf", full_hist_sp, dpi = 300, width = 300, height = 240, units = "mm")
+full_hist_sp
 ```
 
 Distribution of mean ELISA values by disease status:
 ```{r}
-vector_means <- result2[["BUGSoutput"]][["sims.list"]][["vmn"]]
+vector_means <- full.result[["BUGSoutput"]][["sims.list"]][["vmn"]]
 vmn1 <- vector_means[,1]
 vmn2 <- vector_means[,2]
 
@@ -139,8 +134,8 @@ v.dat$vector[36001:72000] <- "2"
 
 colnames(v.dat) <- c("mean", "vector")
 
-m2_hist_vmn <- ggplot(v.dat, aes(x = mean, fill = as.factor(vector))) + geom_histogram(binwidth = 0.02, position = "identity", alpha = 0.3, colour = "black") + labs(y = "Frequency", x = "Optical density", title = "Distribution of posterior ELISA optical density \nmeans, by disease status (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Disease status", labels = c("Not infected", "Infected"))
-m2_hist_vmn
+full_hist_vmn <- ggplot(v.dat, aes(x = mean, fill = as.factor(vector))) + geom_histogram(binwidth = 0.02, position = "identity", alpha = 0.3, colour = "black") + labs(y = "Frequency", x = "Optical density", title = "Distribution of posterior ELISA optical density \nmeans, by disease status (full model)") + theme(plot.title = element_text(hjust = 0.5, face = "bold")) + scale_fill_discrete(name = "Disease status", labels = c("Not infected", "Infected"))
+full_hist_vmn
 ```
 
 
@@ -150,9 +145,9 @@ The ROC curve analysis was used to evaluate the sensitivity and specificity valu
 
 Sample 1000 particles from the MCMC run
 ```{r}
-M1 <- model.dat2$ELISA #vector of ELISA values
+M1 <- dat$ELISA_OD #vector of ELISA values
 
-status <- result2[["BUGSoutput"]][["sims.list"]][["status"]]
+status <- full.result[["BUGSoutput"]][["sims.list"]][["status"]]
 status <- as.data.frame(status)
 
 set.seed(999)
